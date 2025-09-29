@@ -283,18 +283,18 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <div className="text-center mb-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-2">
+    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 max-w-4xl">
+      <div className="text-center mb-6 sm:mb-8">
+        <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">
           VATSIM Flight Plan Lookup
         </h1>
-        <p className="text-gray-600">
+        <p className="text-gray-600 text-sm sm:text-base">
           Enter a callsign to lookup current VATSIM flight information with live position updates
         </p>
       </div>
 
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <form onSubmit={handleSubmit} className="flex gap-4 items-end">
+      <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 mb-6">
+        <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-4 sm:items-end">
           <div className="flex-1">
             <label htmlFor="callsign" className="block text-sm font-medium text-gray-700 mb-2">
               Callsign
@@ -307,29 +307,33 @@ export default function Home() {
               placeholder="Enter callsign (e.g. AAL123, UAL456)"
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 uppercase text-gray-900 bg-white"
               disabled={loading}
+              autoComplete="off"
+              autoCapitalize="characters"
             />
           </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Searching...' : 'Search'}
-          </button>
-          
-          {pilot && (
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
             <button
-              type="button"
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                autoRefresh 
-                  ? 'bg-green-600 text-white hover:bg-green-700' 
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
+              type="submit"
+              disabled={loading}
+              className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
             >
-              {autoRefresh ? 'Auto-Refresh ON' : 'Auto-Refresh OFF'}
+              {loading ? 'Searching...' : 'Search'}
             </button>
-          )}
+            
+            {pilot && (
+              <button
+                type="button"
+                onClick={() => setAutoRefresh(!autoRefresh)}
+                className={`px-4 py-2 rounded-md font-medium transition-colors whitespace-nowrap ${
+                  autoRefresh 
+                    ? 'bg-green-600 text-white hover:bg-green-700' 
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                {autoRefresh ? 'Auto-Refresh ON' : 'Auto-Refresh OFF'}
+              </button>
+            )}
+          </div>
         </form>
       </div>
 
@@ -486,19 +490,19 @@ export default function Home() {
       )}
 
       {pilot && pilot.flight_plan && (
-        <div className="bg-white rounded-lg shadow-md p-6 mt-6">
-          <div className="flex justify-between items-center mb-6">
+        <div className="bg-white rounded-lg shadow-md p-4 sm:p-4 sm:p-6 mt-6">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-4">
             <h2 className="text-2xl font-bold text-gray-900">Weather Information (METAR)</h2>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
               <button
                 onClick={refreshMetarData}
-                className="px-4 py-2 bg-green-600 text-white rounded-md font-medium hover:bg-green-700 transition-colors flex items-center gap-2"
+                className="px-4 py-2 bg-green-600 text-white rounded-md font-medium hover:bg-green-700 transition-colors flex items-center justify-center gap-2 whitespace-nowrap"
               >
                 🔄 Refresh METAR
               </button>
               <button
                 onClick={() => setShowDecodedMetar(!showDecodedMetar)}
-                className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                className={`px-4 py-2 rounded-md font-medium transition-colors whitespace-nowrap ${
                   showDecodedMetar 
                     ? 'bg-blue-600 text-white hover:bg-blue-700' 
                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'

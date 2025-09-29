@@ -9,6 +9,8 @@ A web application to lookup current VATSIM flight plans by callsign.
 - Show aircraft type (short code)
 - Display departure and arrival airports with full names (e.g., "KJFK - John F Kennedy International Airport")
 - Show transponder code (with assigned squawk if different)
+- **Live position updates** - Real-time altitude, speed, and heading updates every second
+- Toggle auto-refresh on/off for live tracking
 - View complete flight plan details including route and remarks
 - Real-time data from VATSIM network (updates every 15 seconds)
 
@@ -82,7 +84,13 @@ The application fetches data directly from the official VATSIM APIs:
    - Departure airport (code + full name)
    - Arrival airport (code + full name)
    - Transponder code (shows assigned squawk if different)
+   - **Live position data** (altitude, speed, heading)
    - Flight plan details
+
+4. **Enable Live Updates** (optional):
+   - Click "Auto-Refresh ON" to get real-time position updates every second
+   - Watch altitude, speed, and heading change in real-time
+   - "Live Updates" indicator shows when auto-refresh is active
 
 ## Technical Details
 

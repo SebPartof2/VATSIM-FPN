@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { VatsimPilot, VatsimAirport } from '../types/vatsim';
 
 export default function Home() {
@@ -9,6 +9,10 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [airports, setAirports] = useState<Record<string, VatsimAirport>>({});
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [dataChanges, setDataChanges] = useState<{[key: string]: boolean}>({});
 
   const fetchAirportInfo = async (icao: string): Promise<VatsimAirport | null> => {
     if (airports[icao]) {
@@ -47,6 +51,58 @@ export default function Home() {
     return icao;
   };
 
+  const refreshPilotData = async (currentCallsign: string) => {
+    if (!currentCallsign) return;
+
+    try {
+      const response = await fetch('https://data.vatsim.net/v3/vatsim-data.json', {
+        headers: {
+          'User-Agent': 'VATSIM-FPN-Lookup-App/1.0'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const foundPilot = data.pilots.find((p: VatsimPilot) => 
+          p.callsign.toUpperCase() === currentCallsign.toUpperCase()
+        );
+
+        if (foundPilot) {
+          // Detect changes in key flight data
+          const changes: {[key: string]: boolean} = {};
+          if (pilot) {
+            changes.altitude = pilot.altitude !== foundPilot.altitude;
+            changes.groundspeed = pilot.groundspeed !== foundPilot.groundspeed;
+            changes.heading = pilot.heading !== foundPilot.heading;
+            changes.transponder = pilot.transponder !== foundPilot.transponder;
+          }
+          
+          console.log(`Data refresh for ${currentCallsign}:`, {
+            altitude: `${pilot?.altitude} → ${foundPilot.altitude}`,
+            groundspeed: `${pilot?.groundspeed} → ${foundPilot.groundspeed}`,
+            heading: `${pilot?.heading} → ${foundPilot.heading}`,
+            changes
+          });
+          
+          setPilot(foundPilot);
+          setDataChanges(changes);
+          setLastUpdated(new Date());
+          
+          // Clear change indicators after 2 seconds
+          setTimeout(() => {
+            setDataChanges({});
+          }, 2000);
+        } else {
+          // Pilot went offline
+          setAutoRefresh(false);
+          setError('Pilot is no longer online on VATSIM.');
+        }
+      }
+    } catch (err) {
+      console.error('Error refreshing pilot data:', err);
+    }
+  };
+
   const searchFlight = async () => {
     if (!callsign.trim()) {
       setError('Please enter a callsign');
@@ -81,6 +137,8 @@ export default function Home() {
 
       if (foundPilot) {
         setPilot(foundPilot);
+        setLastUpdated(new Date());
+        setAutoRefresh(true);
         
         // Fetch airport information for departure and arrival
         if (foundPilot.flight_plan) {
@@ -108,6 +166,35 @@ export default function Home() {
     searchFlight();
   };
 
+  // Auto-refresh effect
+  useEffect(() => {
+    if (autoRefresh && pilot) {
+      refreshIntervalRef.current = setInterval(() => {
+        refreshPilotData(pilot.callsign);
+      }, 1000); // Update every second
+    } else {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [autoRefresh, pilot]);
+
+  // Cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, []);
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       <div className="text-center mb-8">
@@ -115,7 +202,7 @@ export default function Home() {
           VATSIM Flight Plan Lookup
         </h1>
         <p className="text-gray-600">
-          Enter a callsign to lookup current VATSIM flight information
+          Enter a callsign to lookup current VATSIM flight information with live position updates
         </p>
       </div>
 
@@ -142,6 +229,20 @@ export default function Home() {
           >
             {loading ? 'Searching...' : 'Search'}
           </button>
+          
+          {pilot && (
+            <button
+              type="button"
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                autoRefresh 
+                  ? 'bg-green-600 text-white hover:bg-green-700' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              {autoRefresh ? 'Auto-Refresh ON' : 'Auto-Refresh OFF'}
+            </button>
+          )}
         </form>
       </div>
 
@@ -179,7 +280,9 @@ export default function Home() {
                   </div>
                   <div>
                     <span className="font-medium text-gray-700">Transponder:</span>
-                    <span className="ml-2 text-gray-900">
+                    <span className={`ml-2 transition-all duration-500 ${
+                      dataChanges.transponder ? 'text-green-600 font-bold bg-green-50 px-2 py-1 rounded' : 'text-gray-900'
+                    }`}>
                       {pilot.transponder}
                       {pilot.flight_plan?.assigned_transponder && 
                        pilot.flight_plan.assigned_transponder !== pilot.transponder && (
@@ -197,15 +300,27 @@ export default function Home() {
                 <div className="space-y-2">
                   <div>
                     <span className="font-medium text-gray-700">Altitude:</span>
-                    <span className="ml-2 text-gray-900">{pilot.altitude} ft</span>
+                    <span className={`ml-2 transition-all duration-500 ${
+                      dataChanges.altitude ? 'text-green-600 font-bold bg-green-50 px-2 py-1 rounded' : 'text-gray-900'
+                    }`}>
+                      {pilot.altitude} ft
+                    </span>
                   </div>
                   <div>
                     <span className="font-medium text-gray-700">Ground Speed:</span>
-                    <span className="ml-2 text-gray-900">{pilot.groundspeed} kts</span>
+                    <span className={`ml-2 transition-all duration-500 ${
+                      dataChanges.groundspeed ? 'text-green-600 font-bold bg-green-50 px-2 py-1 rounded' : 'text-gray-900'
+                    }`}>
+                      {pilot.groundspeed} kts
+                    </span>
                   </div>
                   <div>
                     <span className="font-medium text-gray-700">Heading:</span>
-                    <span className="ml-2 text-gray-900">{pilot.heading}°</span>
+                    <span className={`ml-2 transition-all duration-500 ${
+                      dataChanges.heading ? 'text-green-600 font-bold bg-green-50 px-2 py-1 rounded' : 'text-gray-900'
+                    }`}>
+                      {pilot.heading}°
+                    </span>
                   </div>
                 </div>
               </div>
@@ -259,11 +374,25 @@ export default function Home() {
           </div>
 
           <div className="mt-6 pt-6 border-t border-gray-200">
-            <div className="text-sm text-gray-500">
-              <span>Last Updated: </span>
-              <span>{new Date(pilot.last_updated).toLocaleString()}</span>
-              <span className="ml-4">Online Since: </span>
-              <span>{new Date(pilot.logon_time).toLocaleString()}</span>
+            <div className="flex justify-between items-center">
+              <div className="text-sm text-gray-500">
+                <span>Last Updated: </span>
+                <span>{lastUpdated ? lastUpdated.toLocaleString() : new Date(pilot.last_updated).toLocaleString()}</span>
+                <span className="ml-4">Online Since: </span>
+                <span>{new Date(pilot.logon_time).toLocaleString()}</span>
+              </div>
+              
+              {autoRefresh && (
+                <div className="flex items-center text-sm text-green-600">
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-2"></div>
+                  <span>Live Updates</span>
+                  <span className="ml-2 text-gray-500 text-xs">
+                    (Alt: {dataChanges.altitude ? '✓' : '-'} | 
+                     GS: {dataChanges.groundspeed ? '✓' : '-'} | 
+                     HDG: {dataChanges.heading ? '✓' : '-'})
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>

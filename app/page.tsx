@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { VatsimPilot, VatsimAirport, MetarData } from '../types/vatsim';
+import { parseMetar } from 'metar-taf-parser';
 
 export default function Home() {
   const [callsign, setCallsign] = useState('');
@@ -14,6 +15,7 @@ export default function Home() {
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [dataChanges, setDataChanges] = useState<{[key: string]: boolean}>({});
   const [metarData, setMetarData] = useState<Record<string, MetarData>>({});
+  const [showDecodedMetar, setShowDecodedMetar] = useState(false);
 
   const fetchAirportInfo = async (icao: string): Promise<VatsimAirport | null> => {
     if (airports[icao]) {
@@ -76,6 +78,62 @@ export default function Home() {
       return `${icao} - ${airport.name}`;
     }
     return icao;
+  };
+
+  const formatDecodedMetar = (metarString: string) => {
+    try {
+      const decoded = parseMetar(metarString);
+      return {
+        wind: decoded.wind ? `${decoded.wind.direction}° at ${decoded.wind.speed} ${decoded.wind.unit}${decoded.wind.gust ? ` gusting to ${decoded.wind.gust} ${decoded.wind.unit}` : ''}` : 'Calm',
+        visibility: decoded.visibility ? `${decoded.visibility.value} ${decoded.visibility.unit}` : 'Unknown',
+        clouds: decoded.clouds?.length > 0 ? decoded.clouds.map(cloud => `${cloud.quantity} at ${cloud.height} ft`).join(', ') : 'Clear',
+        temperature: decoded.temperature ? `${decoded.temperature}°C (${Math.round(decoded.temperature * 9/5 + 32)}°F)` : 'Unknown',
+        dewpoint: decoded.dewPoint ? `${decoded.dewPoint}°C (${Math.round(decoded.dewPoint * 9/5 + 32)}°F)` : 'Unknown',
+        altimeter: decoded.altimeter ? `${decoded.altimeter.value} ${decoded.altimeter.unit}` : 'Unknown',
+        weather: decoded.weatherConditions?.length > 0 ? decoded.weatherConditions.map(wx => `${wx.descriptive || ''} ${wx.phenomenons?.join(' ') || ''}`.trim()).join(', ') : 'No significant weather',
+        flightCategory: getFlightCategory(decoded)
+      };
+    } catch (error) {
+      console.error('Error parsing METAR:', error);
+      return null;
+    }
+  };
+
+  const getFlightCategory = (decoded: any) => {
+    const visibility = decoded.visibility?.value || 10;
+    const ceiling = decoded.clouds?.find((c: any) => c.quantity === 'BKN' || c.quantity === 'OVC')?.height || 10000;
+    
+    if (visibility < 1 || ceiling < 500) return { category: 'LIFR', color: 'text-purple-700', bg: 'bg-purple-100 border-purple-200' };
+    if (visibility < 3 || ceiling < 1000) return { category: 'IFR', color: 'text-red-700', bg: 'bg-red-100 border-red-200' };
+    if (visibility < 5 || ceiling < 3000) return { category: 'MVFR', color: 'text-yellow-700', bg: 'bg-yellow-100 border-yellow-200' };
+    return { category: 'VFR', color: 'text-green-700', bg: 'bg-green-100 border-green-200' };
+  };
+
+  const refreshMetarData = async () => {
+    if (!pilot?.flight_plan) return;
+    
+    const airports = [pilot.flight_plan.departure, pilot.flight_plan.arrival].filter(Boolean);
+    
+    for (const icao of airports) {
+      try {
+        const response = await fetch(`https://metar.vatsim.net/${icao}`);
+        if (response.ok) {
+          const data = await response.text();
+          if (data && data.trim()) {
+            setMetarData(prev => ({
+              ...prev,
+              [icao]: {
+                icao: icao,
+                metar: data.trim(),
+                time: new Date().toISOString()
+              }
+            }));
+          }
+        }
+      } catch (error) {
+        console.error(`Error fetching METAR for ${icao}:`, error);
+      }
+    }
   };
 
   const refreshPilotData = async (currentCallsign: string) => {
@@ -429,7 +487,27 @@ export default function Home() {
 
       {pilot && pilot.flight_plan && (
         <div className="bg-white rounded-lg shadow-md p-6 mt-6">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Weather Information (METAR)</h2>
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-gray-900">Weather Information (METAR)</h2>
+            <div className="flex gap-3">
+              <button
+                onClick={refreshMetarData}
+                className="px-4 py-2 bg-green-600 text-white rounded-md font-medium hover:bg-green-700 transition-colors flex items-center gap-2"
+              >
+                🔄 Refresh METAR
+              </button>
+              <button
+                onClick={() => setShowDecodedMetar(!showDecodedMetar)}
+                className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                  showDecodedMetar 
+                    ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                {showDecodedMetar ? 'Show Raw METAR' : 'Show Decoded METAR'}
+              </button>
+            </div>
+          </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Departure METAR */}
@@ -440,10 +518,38 @@ export default function Home() {
               <div className="bg-gray-50 p-4 rounded-md border">
                 {metarData[pilot.flight_plan.departure] ? (
                   <div>
-                    <div className="font-mono text-sm text-gray-800 leading-relaxed">
-                      {metarData[pilot.flight_plan.departure].metar}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-2">
+                    {showDecodedMetar ? (
+                      (() => {
+                        const decoded = formatDecodedMetar(metarData[pilot.flight_plan.departure].metar);
+                        return decoded ? (
+                          <div className="space-y-3">
+                            <div className={`inline-block px-3 py-1 rounded-full text-sm font-bold border ${decoded.flightCategory.color} ${decoded.flightCategory.bg}`}>
+                              {decoded.flightCategory.category}
+                            </div>
+                            <div className="text-sm space-y-2 text-gray-800">
+                              <div className="flex justify-between"><span className="font-semibold text-gray-700">Wind:</span> <span className="text-gray-900">{decoded.wind}</span></div>
+                              <div className="flex justify-between"><span className="font-semibold text-gray-700">Visibility:</span> <span className="text-gray-900">{decoded.visibility}</span></div>
+                              <div className="flex justify-between"><span className="font-semibold text-gray-700">Clouds:</span> <span className="text-gray-900">{decoded.clouds}</span></div>
+                              <div className="flex justify-between"><span className="font-semibold text-gray-700">Temperature:</span> <span className="text-gray-900">{decoded.temperature}</span></div>
+                              <div className="flex justify-between"><span className="font-semibold text-gray-700">Dewpoint:</span> <span className="text-gray-900">{decoded.dewpoint}</span></div>
+                              <div className="flex justify-between"><span className="font-semibold text-gray-700">Altimeter:</span> <span className="text-gray-900">{decoded.altimeter}</span></div>
+                              {decoded.weather !== 'No significant weather' && (
+                                <div className="flex justify-between"><span className="font-semibold text-gray-700">Weather:</span> <span className="text-gray-900">{decoded.weather}</span></div>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="font-mono text-sm text-gray-800 leading-relaxed">
+                            {metarData[pilot.flight_plan.departure].metar}
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="font-mono text-sm text-gray-800 leading-relaxed">
+                        {metarData[pilot.flight_plan.departure].metar}
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-500 mt-3">
                       Updated: {new Date(metarData[pilot.flight_plan.departure].time).toLocaleString()}
                     </div>
                   </div>
@@ -461,10 +567,38 @@ export default function Home() {
               <div className="bg-gray-50 p-4 rounded-md border">
                 {metarData[pilot.flight_plan.arrival] ? (
                   <div>
-                    <div className="font-mono text-sm text-gray-800 leading-relaxed">
-                      {metarData[pilot.flight_plan.arrival].metar}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-2">
+                    {showDecodedMetar ? (
+                      (() => {
+                        const decoded = formatDecodedMetar(metarData[pilot.flight_plan.arrival].metar);
+                        return decoded ? (
+                          <div className="space-y-3">
+                            <div className={`inline-block px-3 py-1 rounded-full text-sm font-bold border ${decoded.flightCategory.color} ${decoded.flightCategory.bg}`}>
+                              {decoded.flightCategory.category}
+                            </div>
+                            <div className="text-sm space-y-2 text-gray-800">
+                              <div className="flex justify-between"><span className="font-semibold text-gray-700">Wind:</span> <span className="text-gray-900">{decoded.wind}</span></div>
+                              <div className="flex justify-between"><span className="font-semibold text-gray-700">Visibility:</span> <span className="text-gray-900">{decoded.visibility}</span></div>
+                              <div className="flex justify-between"><span className="font-semibold text-gray-700">Clouds:</span> <span className="text-gray-900">{decoded.clouds}</span></div>
+                              <div className="flex justify-between"><span className="font-semibold text-gray-700">Temperature:</span> <span className="text-gray-900">{decoded.temperature}</span></div>
+                              <div className="flex justify-between"><span className="font-semibold text-gray-700">Dewpoint:</span> <span className="text-gray-900">{decoded.dewpoint}</span></div>
+                              <div className="flex justify-between"><span className="font-semibold text-gray-700">Altimeter:</span> <span className="text-gray-900">{decoded.altimeter}</span></div>
+                              {decoded.weather !== 'No significant weather' && (
+                                <div className="flex justify-between"><span className="font-semibold text-gray-700">Weather:</span> <span className="text-gray-900">{decoded.weather}</span></div>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="font-mono text-sm text-gray-800 leading-relaxed">
+                            {metarData[pilot.flight_plan.arrival].metar}
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="font-mono text-sm text-gray-800 leading-relaxed">
+                        {metarData[pilot.flight_plan.arrival].metar}
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-500 mt-3">
                       Updated: {new Date(metarData[pilot.flight_plan.arrival].time).toLocaleString()}
                     </div>
                   </div>

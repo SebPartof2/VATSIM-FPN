@@ -104,4 +104,4 @@ The application fetches data directly from the official VATSIM APIs:
 - Built with Next.js 14 and TypeScript
 - Styled with Tailwind CSS
 - Static export for Cloudflare Pages compatibility
-- Client-side data fetching for real-time updates
+- Client-side data fetching for real-time updatesss

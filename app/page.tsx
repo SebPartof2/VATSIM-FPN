@@ -248,28 +248,18 @@ export default function Home() {
 
     try {
       // For static export, we need to fetch directly from VATSIM API
-      // Mobile-friendly fetch with timeout and better error handling
-      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      const timeoutId = setTimeout(() => controller?.abort(), 15000); // 15 second timeout
+      // Mobile debugging and simplified fetch
+      console.log('Mobile Debug: Starting fetch request...');
+      console.log('Mobile Debug: User Agent:', navigator.userAgent);
+      console.log('Mobile Debug: Online status:', navigator.onLine);
       
-      const fetchOptions: RequestInit = {
+      const response = await fetch('https://data.vatsim.net/v3/vatsim-data.json', {
         method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache',
-          // Remove User-Agent header as it can cause issues on mobile
-        },
-        mode: 'cors',
-        credentials: 'omit'
-      };
+        cache: 'no-cache'
+      });
       
-      if (controller) {
-        fetchOptions.signal = controller.signal;
-      }
-      
-      const response = await fetch('https://data.vatsim.net/v3/vatsim-data.json', fetchOptions);
-      
-      clearTimeout(timeoutId);
+      console.log('Mobile Debug: Response status:', response.status);
+      console.log('Mobile Debug: Response ok:', response.ok);
       
       if (!response.ok) {
         throw new Error(`Network error: ${response.status} ${response.statusText}`);
@@ -305,6 +295,12 @@ export default function Home() {
         setError('Flight not found. Make sure the callsign is correct and the pilot is currently online on VATSIM.');
       }
     } catch (err) {
+      console.log('Mobile Debug: Catch block triggered');
+      console.log('Mobile Debug: Error type:', typeof err);
+      console.log('Mobile Debug: Error name:', err instanceof Error ? err.name : 'Not an Error object');
+      console.log('Mobile Debug: Error message:', err instanceof Error ? err.message : String(err));
+      console.log('Mobile Debug: Full error object:', err);
+      
       let errorMessage = 'Unknown error occurred';
       
       if (err instanceof Error) {
@@ -314,6 +310,8 @@ export default function Home() {
           errorMessage = 'Network access issue - Please try refreshing the page';
         } else if (err.message.includes('Network')) {
           errorMessage = 'Network error - Please check your internet connection';
+        } else if (err.message.includes('JSON')) {
+          errorMessage = 'Data parsing error - The server response was invalid';
         } else {
           errorMessage = err.message;
         }
@@ -324,7 +322,8 @@ export default function Home() {
         error: err,
         userAgent: navigator.userAgent,
         online: navigator.onLine,
-        url: window.location.href
+        url: window.location.href,
+        timestamp: new Date().toISOString()
       });
     } finally {
       setLoading(false);
@@ -436,9 +435,30 @@ export default function Home() {
       )}
 
       {/* Network Status Indicator (Mobile Debug) */}
-      <div className="mb-4 text-xs text-gray-500 text-center">
-        Network: {navigator.onLine ? '🟢 Online' : '🔴 Offline'} | 
-        Browser: {/Mobile|Android|iPhone|iPad/.test(navigator.userAgent) ? '📱 Mobile' : '💻 Desktop'}
+      <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+        <div className="text-xs text-gray-600 text-center mb-2">
+          Network: {navigator.onLine ? '🟢 Online' : '🔴 Offline'} | 
+          Browser: {/Mobile|Android|iPhone|iPad/.test(navigator.userAgent) ? '📱 Mobile' : '💻 Desktop'}
+        </div>
+        <button
+          onClick={async () => {
+            try {
+              console.log('API Test: Starting minimal fetch test...');
+              const response = await fetch('https://data.vatsim.net/v3/vatsim-data.json');
+              console.log('API Test: Response received:', response.status, response.ok);
+              const text = await response.text();
+              console.log('API Test: Response length:', text.length);
+              console.log('API Test: First 200 chars:', text.substring(0, 200));
+              alert(`API Test Success! Status: ${response.status}, Data length: ${text.length}`);
+            } catch (error) {
+              console.log('API Test: Error occurred:', error);
+              alert(`API Test Failed: ${error}`);
+            }
+          }}
+          className="w-full px-3 py-1 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700"
+        >
+          🔧 Test API Connection
+        </button>
       </div>
 
       {pilot && (

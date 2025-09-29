@@ -11,6 +11,7 @@ A web application to lookup current VATSIM flight plans by callsign.
 - Show transponder code (with assigned squawk if different)
 - **Live position updates** - Real-time altitude, speed, and heading updates every second
 - Toggle auto-refresh on/off for live tracking
+- **METAR weather data** - Real-time weather conditions for departure and arrival airports
 - View complete flight plan details including route and remarks
 - Real-time data from VATSIM network (updates every 15 seconds)
 
@@ -71,6 +72,7 @@ The application will automatically handle CORS and API requests through Cloudfla
 The application fetches data directly from the official VATSIM APIs:
 - **Flight Data:** `https://data.vatsim.net/v3/vatsim-data.json` (updates every 15 seconds)
 - **Airport Information:** `https://my.vatsim.net/api/v2/aip/airports/:icao` (for airport names)
+- **Weather Data:** `https://metar.vatsim.net/:icao` (real-time METAR reports)
 - No authentication required
 - CORS enabled for browser requests
 
@@ -91,6 +93,11 @@ The application fetches data directly from the official VATSIM APIs:
    - Click "Auto-Refresh ON" to get real-time position updates every second
    - Watch altitude, speed, and heading change in real-time
    - "Live Updates" indicator shows when auto-refresh is active
+
+5. **View Weather Information**:
+   - METAR weather reports for both departure and arrival airports
+   - Real-time weather conditions including wind, visibility, clouds, temperature
+   - Updated automatically when searching for flights
 
 ## Technical Details
 

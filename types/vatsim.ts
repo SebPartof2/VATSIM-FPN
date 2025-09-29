@@ -59,3 +59,9 @@ export interface VatsimAirport {
   city?: string;
   country?: string;
 }
+
+export interface MetarData {
+  icao: string;
+  metar: string;
+  time: string;
+}

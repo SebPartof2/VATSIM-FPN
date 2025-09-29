@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { VatsimPilot, VatsimAirport } from '../types/vatsim';
+import { VatsimPilot, VatsimAirport, MetarData } from '../types/vatsim';
 
 export default function Home() {
   const [callsign, setCallsign] = useState('');
@@ -13,6 +13,7 @@ export default function Home() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [dataChanges, setDataChanges] = useState<{[key: string]: boolean}>({});
+  const [metarData, setMetarData] = useState<Record<string, MetarData>>({});
 
   const fetchAirportInfo = async (icao: string): Promise<VatsimAirport | null> => {
     if (airports[icao]) {
@@ -38,6 +39,32 @@ export default function Home() {
       }
     } catch (error) {
       console.log(`Could not fetch airport info for ${icao}:`, error);
+    }
+    
+    return null;
+  };
+
+  const fetchMetarData = async (icao: string): Promise<MetarData | null> => {
+    if (metarData[icao]) {
+      return metarData[icao];
+    }
+
+    try {
+      const response = await fetch(`https://metar.vatsim.net/${icao}`);
+      if (response.ok) {
+        const metarText = await response.text();
+        const metar: MetarData = {
+          icao: icao,
+          metar: metarText.trim(),
+          time: new Date().toISOString()
+        };
+        setMetarData(prev => ({ ...prev, [icao]: metar }));
+        return metar;
+      } else {
+        console.log(`METAR API returned status ${response.status} for ${icao}`);
+      }
+    } catch (error) {
+      console.log(`Could not fetch METAR for ${icao}:`, error);
     }
     
     return null;
@@ -144,9 +171,11 @@ export default function Home() {
         if (foundPilot.flight_plan) {
           if (foundPilot.flight_plan.departure) {
             fetchAirportInfo(foundPilot.flight_plan.departure);
+            fetchMetarData(foundPilot.flight_plan.departure);
           }
           if (foundPilot.flight_plan.arrival) {
             fetchAirportInfo(foundPilot.flight_plan.arrival);
+            fetchMetarData(foundPilot.flight_plan.arrival);
           }
         }
       } else {
@@ -393,6 +422,56 @@ export default function Home() {
                   </span>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pilot && pilot.flight_plan && (
+        <div className="bg-white rounded-lg shadow-md p-6 mt-6">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Weather Information (METAR)</h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Departure METAR */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                Departure - {formatAirportDisplay(pilot.flight_plan.departure)}
+              </h3>
+              <div className="bg-gray-50 p-4 rounded-md border">
+                {metarData[pilot.flight_plan.departure] ? (
+                  <div>
+                    <div className="font-mono text-sm text-gray-800 leading-relaxed">
+                      {metarData[pilot.flight_plan.departure].metar}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-2">
+                      Updated: {new Date(metarData[pilot.flight_plan.departure].time).toLocaleString()}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-gray-500 italic">Loading weather data...</div>
+                )}
+              </div>
+            </div>
+
+            {/* Arrival METAR */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                Arrival - {formatAirportDisplay(pilot.flight_plan.arrival)}
+              </h3>
+              <div className="bg-gray-50 p-4 rounded-md border">
+                {metarData[pilot.flight_plan.arrival] ? (
+                  <div>
+                    <div className="font-mono text-sm text-gray-800 leading-relaxed">
+                      {metarData[pilot.flight_plan.arrival].metar}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-2">
+                      Updated: {new Date(metarData[pilot.flight_plan.arrival].time).toLocaleString()}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-gray-500 italic">Loading weather data...</div>
+                )}
+              </div>
             </div>
           </div>
         </div>

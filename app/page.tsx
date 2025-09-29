@@ -60,7 +60,21 @@ export default function Home() {
     }
 
     try {
-      const response = await fetch(`https://metar.vatsim.net/${icao}`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+      
+      const response = await fetch(`https://metar.vatsim.net/${icao}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'text/plain',
+        },
+        signal: controller.signal,
+        mode: 'cors',
+        credentials: 'omit'
+      });
+      
+      clearTimeout(timeoutId);
+      
       if (response.ok) {
         const metarText = await response.text();
         const metar: MetarData = {
@@ -74,7 +88,11 @@ export default function Home() {
         console.log(`METAR API returned status ${response.status} for ${icao}`);
       }
     } catch (error) {
-      console.log(`Could not fetch METAR for ${icao}:`, error);
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log(`METAR fetch timeout for ${icao}`);
+      } else {
+        console.log(`Could not fetch METAR for ${icao}:`, error);
+      }
     }
     
     return null;
@@ -148,14 +166,30 @@ export default function Home() {
     if (!currentCallsign) return;
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout for refresh
+      
       const response = await fetch('https://data.vatsim.net/v3/vatsim-data.json', {
+        method: 'GET',
         headers: {
-          'User-Agent': 'VATSIM-FPN-Lookup-App/1.0'
-        }
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
+        signal: controller.signal,
+        mode: 'cors',
+        credentials: 'omit'
       });
+      
+      clearTimeout(timeoutId);
       
       if (response.ok) {
         const data = await response.json();
+        
+        if (!data || !data.pilots) {
+          console.error('Invalid refresh data received');
+          return;
+        }
+        
         const foundPilot = data.pilots.find((p: VatsimPilot) => 
           p.callsign.toUpperCase() === currentCallsign.toUpperCase()
         );
@@ -202,26 +236,49 @@ export default function Home() {
       return;
     }
 
+    // Check network connectivity (mobile-specific)
+    if (!navigator.onLine) {
+      setError('No internet connection detected. Please check your network and try again.');
+      return;
+    }
+
     setLoading(true);
     setError('');
     setPilot(null);
 
     try {
       // For static export, we need to fetch directly from VATSIM API
-      const response = await fetch('https://data.vatsim.net/v3/vatsim-data.json', {
+      // Mobile-friendly fetch with timeout and better error handling
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = setTimeout(() => controller?.abort(), 15000); // 15 second timeout
+      
+      const fetchOptions: RequestInit = {
+        method: 'GET',
         headers: {
-          'User-Agent': 'VATSIM-FPN-Lookup-App/1.0'
-        }
-      });
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache',
+          // Remove User-Agent header as it can cause issues on mobile
+        },
+        mode: 'cors',
+        credentials: 'omit'
+      };
+      
+      if (controller) {
+        fetchOptions.signal = controller.signal;
+      }
+      
+      const response = await fetch('https://data.vatsim.net/v3/vatsim-data.json', fetchOptions);
+      
+      clearTimeout(timeoutId);
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Network error: ${response.status} ${response.statusText}`);
       }
       
       const data = await response.json();
       
-      if (data.error) {
-        throw new Error(data.error);
+      if (!data || !data.pilots) {
+        throw new Error('Invalid data received from VATSIM API');
       }
       
       const foundPilot = data.pilots.find((p: VatsimPilot) => 
@@ -248,9 +305,27 @@ export default function Home() {
         setError('Flight not found. Make sure the callsign is correct and the pilot is currently online on VATSIM.');
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-      setError(`Error fetching flight data: ${errorMessage}. Please try again.`);
-      console.error('Error:', err);
+      let errorMessage = 'Unknown error occurred';
+      
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          errorMessage = 'Request timeout - Please check your internet connection and try again';
+        } else if (err.message.includes('CORS')) {
+          errorMessage = 'Network access issue - Please try refreshing the page';
+        } else if (err.message.includes('Network')) {
+          errorMessage = 'Network error - Please check your internet connection';
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
+      setError(`Error fetching flight data: ${errorMessage}`);
+      console.error('Mobile debug - Error details:', {
+        error: err,
+        userAgent: navigator.userAgent,
+        online: navigator.onLine,
+        url: window.location.href
+      });
     } finally {
       setLoading(false);
     }
@@ -359,6 +434,12 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Network Status Indicator (Mobile Debug) */}
+      <div className="mb-4 text-xs text-gray-500 text-center">
+        Network: {navigator.onLine ? '🟢 Online' : '🔴 Offline'} | 
+        Browser: {/Mobile|Android|iPhone|iPad/.test(navigator.userAgent) ? '📱 Mobile' : '💻 Desktop'}
+      </div>
 
       {pilot && (
         <div className="bg-white rounded-lg shadow-md p-6">

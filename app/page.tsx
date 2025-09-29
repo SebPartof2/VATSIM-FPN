@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { VatsimPilot, VatsimAirport, MetarData } from '../types/vatsim';
 import { parseMetar } from 'metar-taf-parser';
+import { getAirportByIcao } from '../utils/vatspy-parser';
 
 export default function Home() {
   const [callsign, setCallsign] = useState('');
@@ -23,24 +24,31 @@ export default function Home() {
     }
 
     try {
-      const response = await fetch(`https://my.vatsim.net/api/v2/aip/airports/${icao}`);
-      if (response.ok) {
-        const result = await response.json();
-        const airportData = result.data; // The actual airport data is nested under 'data'
-        console.log(`Fetched airport data for ${icao}:`, airportData); // Debug log
+      const vatspyAirport = await getAirportByIcao(icao);
+      if (vatspyAirport) {
+        console.log(`Found airport data in VATSpy for ${icao}:`, vatspyAirport); // Debug log
         const airport: VatsimAirport = {
-          icao: icao,
-          name: airportData.name || icao,
-          city: airportData.city,
-          country: airportData.country
+          icao: vatspyAirport.icao,
+          name: vatspyAirport.name,
+          city: undefined, // VATSpy doesn't have city data separate from name
+          country: undefined // VATSpy doesn't have country data in airport section
         };
         setAirports(prev => ({ ...prev, [icao]: airport }));
         return airport;
       } else {
-        console.log(`Airport API returned status ${response.status} for ${icao}`);
+        console.log(`Airport ${icao} not found in VATSpy data`);
+        // Fallback: create a basic airport entry with just the ICAO code
+        const fallbackAirport: VatsimAirport = {
+          icao: icao,
+          name: icao, // Use ICAO as name when not found
+          city: undefined,
+          country: undefined
+        };
+        setAirports(prev => ({ ...prev, [icao]: fallbackAirport }));
+        return fallbackAirport;
       }
     } catch (error) {
-      console.log(`Could not fetch airport info for ${icao}:`, error);
+      console.log(`Could not fetch airport info from VATSpy for ${icao}:`, error);
     }
     
     return null;

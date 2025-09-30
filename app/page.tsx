@@ -15,6 +15,7 @@ const FlightMap = dynamic(() => import('../components/FlightMap'), {
 export default function Home() {
   const [callsign, setCallsign] = useState('');
   const [pilot, setPilot] = useState<VatsimPilot | null>(null);
+  const [activeFrequency, setActiveFrequency] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [airports, setAirports] = useState<Record<string, VatsimAirport>>({});
@@ -364,6 +365,10 @@ export default function Home() {
             setCurrentFIR(fir);
           }
           
+          // Update frequency periodically
+          const frequency = await fetchActiveFrequency(foundPilot.callsign);
+          setActiveFrequency(frequency);
+          
           // Clear change indicators after 2 seconds
           setTimeout(() => {
             setDataChanges({});
@@ -432,6 +437,10 @@ export default function Home() {
         // Detect current FIR
         const fir = await detectCurrentFIR(foundPilot);
         setCurrentFIR(fir);
+        
+        // Fetch active frequency
+        const frequency = await fetchActiveFrequency(foundPilot.callsign);
+        setActiveFrequency(frequency);
         
         // Fetch airport information for departure and arrival
         if (foundPilot.flight_plan) {
@@ -519,6 +528,35 @@ export default function Home() {
   // Check if point is in MultiPolygon
   const isPointInMultiPolygon = (point: [number, number], multiPolygon: number[][][][]): boolean => {
     return multiPolygon.some(polygon => isPointInPolygon(point, polygon));
+  };
+
+  // Fetch active frequency for the pilot
+  const fetchActiveFrequency = async (callsign: string): Promise<string | null> => {
+    try {
+      const response = await fetch('https://data.vatsim.net/v3/transceivers-data.json');
+      if (!response.ok) {
+        console.warn('Failed to fetch transceivers data:', response.status);
+        return null;
+      }
+      
+      const data = await response.json();
+      const pilotTransceiver = data.find((entry: any) => 
+        entry.callsign.toUpperCase() === callsign.toUpperCase()
+      );
+      
+      if (pilotTransceiver && pilotTransceiver.transceivers && pilotTransceiver.transceivers.length > 0) {
+        // Get the first transceiver frequency and format it
+        const frequency = pilotTransceiver.transceivers[0].frequency;
+        // Convert from Hz to MHz with proper formatting (e.g., 122800000 -> 122.800)
+        const formattedFreq = (frequency / 1000000).toFixed(3);
+        return formattedFreq;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error fetching active frequency:', error);
+      return null;
+    }
   };
 
   // Parse VATSpy.dat to get FIR names
@@ -889,6 +927,24 @@ export default function Home() {
                           Oceanic
                         </span>
                       )}
+                    </div>
+                  )}
+                  {activeFrequency && (
+                    <div>
+                      <span className="font-medium text-gray-700">Active Frequency:</span>
+                      <div className="mt-3 flex justify-center">
+                        <div className="bg-gray-900 text-green-400 px-6 py-4 rounded-xl border-2 border-gray-700 shadow-lg shadow-gray-800/50">
+                          <div className="flex items-center justify-center space-x-3">
+                            <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse shadow-lg shadow-green-400/50"></div>
+                            <span className="font-mono text-2xl font-bold tracking-widest">
+                              {activeFrequency}
+                            </span>
+                            <span className="text-green-300 text-lg font-semibold">
+                              MHz
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

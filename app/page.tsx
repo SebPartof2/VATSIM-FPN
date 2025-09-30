@@ -26,6 +26,7 @@ export default function Home() {
   const [showDecodedMetar, setShowDecodedMetar] = useState(false);
   const [atisData, setAtisData] = useState<Record<string, AtisData>>({});
   const [etaData, setEtaData] = useState<{ duration: string; etaUTC: string; etaLocal: string; distance: number } | null>(null);
+  const [currentFIR, setCurrentFIR] = useState<{ id: string; name: string; isOceanic: boolean } | null>(null);
 
   const fetchAirportInfo = async (icao: string): Promise<VatsimAirport | null> => {
     if (airports[icao]) {
@@ -357,6 +358,12 @@ export default function Home() {
           setDataChanges(changes);
           setLastUpdated(new Date());
           
+          // Update FIR if position changed
+          if (changes.altitude || changes.groundspeed || changes.heading) {
+            const fir = await detectCurrentFIR(foundPilot);
+            setCurrentFIR(fir);
+          }
+          
           // Clear change indicators after 2 seconds
           setTimeout(() => {
             setDataChanges({});
@@ -422,6 +429,10 @@ export default function Home() {
         setLastUpdated(new Date());
         setAutoRefresh(true);
         
+        // Detect current FIR
+        const fir = await detectCurrentFIR(foundPilot);
+        setCurrentFIR(fir);
+        
         // Fetch airport information for departure and arrival
         if (foundPilot.flight_plan) {
           if (foundPilot.flight_plan.departure) {
@@ -471,6 +482,141 @@ export default function Home() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Point-in-polygon algorithm to check if a point is inside a polygon
+  const isPointInPolygon = (point: [number, number], polygon: number[][][]): boolean => {
+    const [lng, lat] = point;
+    
+    // Check all rings in the polygon (first ring is exterior, others are holes)
+    for (let ringIndex = 0; ringIndex < polygon.length; ringIndex++) {
+      const ring = polygon[ringIndex];
+      let inside = false;
+      
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i];
+        const [xj, yj] = ring[j];
+        
+        if (((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+          inside = !inside;
+        }
+      }
+      
+      // For exterior ring (index 0), we want to be inside
+      // For hole rings (index > 0), we want to be outside
+      if (ringIndex === 0 && !inside) {
+        return false; // Not in exterior ring
+      }
+      if (ringIndex > 0 && inside) {
+        return false; // Inside a hole
+      }
+    }
+    
+    return true;
+  };
+
+  // Check if point is in MultiPolygon
+  const isPointInMultiPolygon = (point: [number, number], multiPolygon: number[][][][]): boolean => {
+    return multiPolygon.some(polygon => isPointInPolygon(point, polygon));
+  };
+
+  // Parse VATSpy.dat to get FIR names
+  const parseFIRNames = async (): Promise<Map<string, string>> => {
+    try {
+      const response = await fetch('/vatspy-data/VATSpy.dat');
+      const text = await response.text();
+      const lines = text.split('\n');
+      
+      const firNames = new Map<string, string>();
+      let inFIRSection = false;
+      
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        
+        if (trimmedLine === '[FIRs]') {
+          inFIRSection = true;
+          continue;
+        }
+        
+        if (trimmedLine.startsWith('[') && trimmedLine !== '[FIRs]') {
+          inFIRSection = false;
+          continue;
+        }
+        
+        if (inFIRSection && trimmedLine && !trimmedLine.startsWith(';')) {
+          const parts = trimmedLine.split('|');
+          if (parts.length >= 2) {
+            const firId = parts[0];
+            const firName = parts[1];
+            
+            // Only store the first occurrence (primary name) for each FIR ID
+            if (!firNames.has(firId)) {
+              firNames.set(firId, firName);
+            }
+          }
+        }
+      }
+      
+      return firNames;
+    } catch (error) {
+      console.error('Error parsing VATSpy.dat:', error);
+      return new Map();
+    }
+  };
+
+  // Detect which FIR the pilot is currently within
+  const detectCurrentFIR = async (pilot: VatsimPilot): Promise<{ id: string; name: string; isOceanic: boolean } | null> => {
+    try {
+      const [boundariesResponse, firNamesMap] = await Promise.all([
+        fetch('/vatspy-data/Boundaries.geojson'),
+        parseFIRNames()
+      ]);
+      
+      const data = await boundariesResponse.json();
+      const pilotPoint: [number, number] = [pilot.longitude, pilot.latitude];
+      
+      // Collect all matching FIRs
+      const matchingFIRs: { id: string; name: string; isOceanic: boolean }[] = [];
+      
+      for (const feature of data.features) {
+        let isMatch = false;
+        
+        if (feature.geometry.type === 'MultiPolygon') {
+          isMatch = isPointInMultiPolygon(pilotPoint, feature.geometry.coordinates);
+        } else if (feature.geometry.type === 'Polygon') {
+          isMatch = isPointInPolygon(pilotPoint, feature.geometry.coordinates);
+        }
+        
+        if (isMatch) {
+          const firId = feature.properties.id || 'Unknown FIR';
+          const firName = firNamesMap.get(firId) || firId;
+          
+          matchingFIRs.push({
+            id: firId,
+            name: firName,
+            isOceanic: feature.properties.oceanic === '1'
+          });
+        }
+      }
+      
+      // If no matches found
+      if (matchingFIRs.length === 0) {
+        return null;
+      }
+      
+      // Prioritize land-based FIRs over oceanic FIRs
+      const landBasedFIRs = matchingFIRs.filter(fir => !fir.isOceanic);
+      if (landBasedFIRs.length > 0) {
+        return landBasedFIRs[0]; // Return the first land-based FIR
+      }
+      
+      // If only oceanic FIRs found, return the first one
+      return matchingFIRs[0];
+      
+    } catch (error) {
+      console.error('Error detecting FIR:', error);
+      return null;
     }
   };
 
@@ -732,6 +878,19 @@ export default function Home() {
                       {pilot.heading}°
                     </span>
                   </div>
+                  {currentFIR && (
+                    <div>
+                      <span className="font-medium text-gray-700">Current FIR:</span>
+                      <span className="ml-2 text-gray-900">
+                        {currentFIR.name} ({currentFIR.id})
+                      </span>
+                      {currentFIR.isOceanic && (
+                        <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium">
+                          Oceanic
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

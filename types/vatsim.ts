@@ -46,3 +46,25 @@ export interface MetarData {
   metar: string;
   time: string;
 }
+
+export interface VatsimATIS {
+  cid: number;
+  name: string;
+  callsign: string;
+  frequency: string;
+  facility: number;
+  rating: number;
+  server: string;
+  visual_range: number;
+  text_atis?: string[];
+  last_updated: string;
+  logon_time: string;
+}
+
+export interface AtisData {
+  icao: string;
+  atis?: string;
+  callsign?: string;
+  frequency?: string;
+  time?: string;
+}

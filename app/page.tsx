@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { VatsimPilot, VatsimAirport, MetarData } from '../types/vatsim';
+import { VatsimPilot, VatsimAirport, MetarData, VatsimATIS, AtisData } from '../types/vatsim';
 import { parseMetar } from 'metar-taf-parser';
 import { getAirportByIcao } from '../utils/vatspy-parser';
 
@@ -24,6 +24,7 @@ export default function Home() {
   const [dataChanges, setDataChanges] = useState<{[key: string]: boolean}>({});
   const [metarData, setMetarData] = useState<Record<string, MetarData>>({});
   const [showDecodedMetar, setShowDecodedMetar] = useState(false);
+  const [atisData, setAtisData] = useState<Record<string, AtisData>>({});
 
   const fetchAirportInfo = async (icao: string): Promise<VatsimAirport | null> => {
     if (airports[icao]) {
@@ -105,6 +106,60 @@ export default function Home() {
     return null;
   };
 
+  const fetchAtisData = async (icao: string): Promise<AtisData | null> => {
+    if (atisData[icao]) {
+      return atisData[icao];
+    }
+
+    try {
+      const response = await fetch('https://data.vatsim.net/v3/vatsim-data.json');
+      if (response.ok) {
+        const data = await response.json();
+        const controllers = data.atis || [];
+        
+        // Look for ATIS stations matching the ICAO code
+        // Common patterns: ICAO_ATIS, ICAO_A_ATIS, ICAO_D_ATIS
+        const atisStations = controllers.filter((controller: VatsimATIS) => {
+          const callsign = controller.callsign.toUpperCase();
+          const icaoUpper = icao.toUpperCase();
+          return callsign.includes(`${icaoUpper}_ATIS`) || 
+                 callsign.includes(`${icaoUpper}_A_ATIS`) || 
+                 callsign.includes(`${icaoUpper}_D_ATIS`);
+        });
+
+        let atisInfo: AtisData;
+        
+        if (atisStations.length > 0) {
+          const station = atisStations[0]; // Use the first matching station
+          atisInfo = {
+            icao: icao.toUpperCase(),
+            atis: station.text_atis ? station.text_atis.join(' ') : 'ATIS available but no text provided',
+            callsign: station.callsign,
+            frequency: station.frequency,
+            time: new Date().toISOString()
+          };
+        } else {
+          atisInfo = {
+            icao: icao.toUpperCase(),
+            atis: 'ATIS Station offline',
+            time: new Date().toISOString()
+          };
+        }
+        
+        setAtisData(prev => ({ ...prev, [icao]: atisInfo }));
+        return atisInfo;
+      }
+    } catch (error) {
+      console.log(`Could not fetch ATIS for ${icao}:`, error);
+    }
+    
+    return {
+      icao: icao.toUpperCase(),
+      atis: 'ATIS Station offline',
+      time: new Date().toISOString()
+    };
+  };
+
   const formatAirportDisplay = (icao: string): string => {
     const airport = airports[icao];
     if (airport && airport.name && airport.name !== icao) {
@@ -149,22 +204,27 @@ export default function Home() {
     
     for (const icao of airports) {
       try {
-        const response = await fetch(`https://metar.vatsim.net/${icao}`);
-        if (response.ok) {
-          const data = await response.text();
-          if (data && data.trim()) {
+        // Refresh METAR
+        const metarResponse = await fetch(`https://metar.vatsim.net/${icao}`);
+        if (metarResponse.ok) {
+          const metarData = await metarResponse.text();
+          if (metarData && metarData.trim()) {
             setMetarData(prev => ({
               ...prev,
               [icao]: {
                 icao: icao,
-                metar: data.trim(),
+                metar: metarData.trim(),
                 time: new Date().toISOString()
               }
             }));
           }
         }
+        
+        // Refresh ATIS
+        await fetchAtisData(icao);
+        
       } catch (error) {
-        console.error(`Error fetching METAR for ${icao}:`, error);
+        console.error(`Error fetching weather data for ${icao}:`, error);
       }
     }
   };
@@ -292,10 +352,12 @@ export default function Home() {
           if (foundPilot.flight_plan.departure) {
             fetchAirportInfo(foundPilot.flight_plan.departure);
             fetchMetarData(foundPilot.flight_plan.departure);
+            fetchAtisData(foundPilot.flight_plan.departure);
           }
           if (foundPilot.flight_plan.arrival) {
             fetchAirportInfo(foundPilot.flight_plan.arrival);
             fetchMetarData(foundPilot.flight_plan.arrival);
+            fetchAtisData(foundPilot.flight_plan.arrival);
           }
         }
       } else {
@@ -380,6 +442,37 @@ export default function Home() {
         <p className="text-gray-600 text-sm sm:text-base">
           Enter a callsign to lookup current VATSIM flight information with live position updates
         </p>
+        
+        {/* External Services */}
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center mt-6 mb-2">
+          <a
+            href="https://dispatch.simbrief.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors shadow-sm"
+          >
+            <img 
+              src="https://www.simbrief.com/images/icon_navi_color.png" 
+              alt="SimBrief" 
+              className="w-4 h-4 mr-2"
+            />
+            Plan Flight (SimBrief)
+          </a>
+          <a
+            href="https://my.vatsim.net/pilots/flightplan"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center px-4 py-2 text-white text-sm font-medium rounded-md hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-all shadow-sm"
+            style={{ backgroundColor: '#29B473' }}
+          >
+            <img 
+              src="/images/VATSIM_Logo_Official_White_Tagline_1000px.png" 
+              alt="VATSIM" 
+              className="h-4 mr-2"
+            />
+            File Flight Plan (VATSIM)
+          </a>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 mb-6">
@@ -551,12 +644,42 @@ export default function Home() {
                     </span>
                   </div>
                   <div>
-                    <span className="font-medium text-gray-700">Departure:</span>
-                    <span className="ml-2 text-gray-900">{formatAirportDisplay(pilot.flight_plan.departure)}</span>
+                    <div>
+                      <span className="font-medium text-gray-700">Departure:</span>
+                      <span className="ml-2 text-gray-900">{formatAirportDisplay(pilot.flight_plan.departure)}</span>
+                    </div>
+                    <a
+                      href={`https://chartfox.org/${pilot.flight_plan.departure}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center px-2 py-1 bg-gray-600 text-white text-xs font-medium rounded hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors w-fit mt-1"
+                    >
+                      <img 
+                        src="https://chartfox.org/images/ChartFoxLogoLight.svg" 
+                        alt="ChartFox" 
+                        className="h-3 mr-1"
+                      />
+                      Charts
+                    </a>
                   </div>
                   <div>
-                    <span className="font-medium text-gray-700">Arrival:</span>
-                    <span className="ml-2 text-gray-900">{formatAirportDisplay(pilot.flight_plan.arrival)}</span>
+                    <div>
+                      <span className="font-medium text-gray-700">Arrival:</span>
+                      <span className="ml-2 text-gray-900">{formatAirportDisplay(pilot.flight_plan.arrival)}</span>
+                    </div>
+                    <a
+                      href={`https://chartfox.org/${pilot.flight_plan.arrival}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center px-2 py-1 bg-gray-600 text-white text-xs font-medium rounded hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors w-fit mt-1"
+                    >
+                      <img 
+                        src="https://chartfox.org/images/ChartFoxLogoLight.svg" 
+                        alt="ChartFox" 
+                        className="h-3 mr-1"
+                      />
+                      Charts
+                    </a>
                   </div>
                   <div>
                     <span className="font-medium text-gray-700">Departure Time:</span>
@@ -615,13 +738,13 @@ export default function Home() {
       {pilot && pilot.flight_plan && (
         <div className="bg-white rounded-lg shadow-md p-4 sm:p-4 sm:p-6 mt-6">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-4">
-            <h2 className="text-2xl font-bold text-gray-900">Weather Information (METAR)</h2>
+            <h2 className="text-2xl font-bold text-gray-900">Weather Information (METAR & ATIS)</h2>
             <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
               <button
                 onClick={refreshMetarData}
                 className="px-4 py-2 bg-green-600 text-white rounded-md font-medium hover:bg-green-700 transition-colors flex items-center justify-center gap-2 whitespace-nowrap"
               >
-                🔄 Refresh METAR
+                🔄 Refresh Weather
               </button>
               <button
                 onClick={() => setShowDecodedMetar(!showDecodedMetar)}
@@ -732,6 +855,70 @@ export default function Home() {
                 ) : (
                   <div className="text-gray-500 italic">Loading weather data...</div>
                 )}
+              </div>
+            </div>
+          </div>
+          
+          {/* ATIS Information */}
+          <div className="mt-8">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">ATIS Information</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Departure ATIS */}
+              <div>
+                <h4 className="text-lg font-semibold text-gray-900 mb-3">
+                  Departure - {formatAirportDisplay(pilot.flight_plan.departure)}
+                </h4>
+                <div className="bg-gray-50 p-4 rounded-md border">
+                  {atisData[pilot.flight_plan.departure] ? (
+                    <div>
+                      <div className="text-sm text-gray-800 leading-relaxed">
+                        {atisData[pilot.flight_plan.departure].atis}
+                      </div>
+                      {atisData[pilot.flight_plan.departure].callsign && (
+                        <div className="text-xs text-gray-600 mt-2">
+                          <span className="font-semibold">Station:</span> {atisData[pilot.flight_plan.departure].callsign}
+                          {atisData[pilot.flight_plan.departure].frequency && (
+                            <span className="ml-3"><span className="font-semibold">Frequency:</span> {atisData[pilot.flight_plan.departure].frequency}</span>
+                          )}
+                        </div>
+                      )}
+                      <div className="text-xs text-gray-500 mt-2">
+                        Updated: {new Date(atisData[pilot.flight_plan.departure].time || '').toLocaleString()}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-gray-500 italic">Loading ATIS data...</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Arrival ATIS */}
+              <div>
+                <h4 className="text-lg font-semibold text-gray-900 mb-3">
+                  Arrival - {formatAirportDisplay(pilot.flight_plan.arrival)}
+                </h4>
+                <div className="bg-gray-50 p-4 rounded-md border">
+                  {atisData[pilot.flight_plan.arrival] ? (
+                    <div>
+                      <div className="text-sm text-gray-800 leading-relaxed">
+                        {atisData[pilot.flight_plan.arrival].atis}
+                      </div>
+                      {atisData[pilot.flight_plan.arrival].callsign && (
+                        <div className="text-xs text-gray-600 mt-2">
+                          <span className="font-semibold">Station:</span> {atisData[pilot.flight_plan.arrival].callsign}
+                          {atisData[pilot.flight_plan.arrival].frequency && (
+                            <span className="ml-3"><span className="font-semibold">Frequency:</span> {atisData[pilot.flight_plan.arrival].frequency}</span>
+                          )}
+                        </div>
+                      )}
+                      <div className="text-xs text-gray-500 mt-2">
+                        Updated: {new Date(atisData[pilot.flight_plan.arrival].time || '').toLocaleString()}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-gray-500 italic">Loading ATIS data...</div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

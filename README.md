@@ -9,9 +9,10 @@ A web application to lookup current VATSIM flight plans by callsign.
 - Show aircraft type (short code)
 - Display departure and arrival airports with full names (e.g., "KJFK - John F Kennedy International Airport")
 - Show transponder code (with assigned squawk if different)
+- **Interactive Flight Map** - Real-time aircraft position with departure/arrival airports and flight path
 - **Live position updates** - Real-time altitude, speed, and heading updates every second
 - Toggle auto-refresh on/off for live tracking
-- **METAR weather data** - Real-time weather conditions for departure and arrival airports
+- **METAR weather data** - Real-time weather conditions for departure and arrival airports with decoded weather information
 - View complete flight plan details including route and remarks
 - Real-time data from VATSIM network (updates every 15 seconds)
 
@@ -81,6 +82,7 @@ The application fetches data directly from the official VATSIM APIs:
 1. Enter a callsign in the search field (e.g., "AAL123", "UAL456")
 2. Click "Search" or press Enter
 3. View the flight information including:
+   - **Interactive Flight Map** showing current aircraft position, departure/arrival airports, and flight path
    - Pilot name
    - Aircraft type
    - Departure airport (code + full name)
@@ -89,19 +91,30 @@ The application fetches data directly from the official VATSIM APIs:
    - **Live position data** (altitude, speed, heading)
    - Flight plan details
 
-4. **Enable Live Updates** (optional):
+4. **Interactive Map Features**:
+   - Real-time aircraft position updates
+   - Departure and arrival airport markers
+   - Flight path visualization with dashed line
+   - Click markers for detailed information
+   - Mobile-friendly touch controls
+
+5. **Enable Live Updates** (optional):
    - Click "Auto-Refresh ON" to get real-time position updates every second
    - Watch altitude, speed, and heading change in real-time
+   - Map automatically updates with new aircraft position
    - "Live Updates" indicator shows when auto-refresh is active
 
-5. **View Weather Information**:
+6. **View Weather Information**:
    - METAR weather reports for both departure and arrival airports
+   - Toggle between raw METAR data and decoded human-readable format
    - Real-time weather conditions including wind, visibility, clouds, temperature
+   - Flight category indicators (VFR/IFR/MVFR/LIFR)
    - Updated automatically when searching for flights
 
 ## Technical Details
 
 - Built with Next.js 14 and TypeScript
 - Styled with Tailwind CSS
+- Interactive maps powered by Leaflet and React-Leaflet
 - Static export for Cloudflare Pages compatibility
 - Client-side data fetching for real-time updatesss

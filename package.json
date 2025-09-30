@@ -10,13 +10,17 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@types/leaflet": "^1.9.20",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "leaflet": "^1.9.4",
     "metar-taf-parser": "^9.1.2",
     "next": "^14.2.33",
     "react": "^18",
     "react-dom": "^18",
+    "react-leaflet": "^4.2.1",
+    "styled-jsx": "^5.1.7",
     "typescript": "^5"
   },
   "devDependencies": {

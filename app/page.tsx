@@ -1,9 +1,16 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { VatsimPilot, VatsimAirport, MetarData } from '../types/vatsim';
 import { parseMetar } from 'metar-taf-parser';
 import { getAirportByIcao } from '../utils/vatspy-parser';
+
+// Dynamic import for map component (Leaflet doesn't work with SSR)
+const FlightMap = dynamic(() => import('../components/FlightMap'), {
+  ssr: false,
+  loading: () => <div className="w-full h-96 bg-gray-100 rounded-lg flex items-center justify-center">Loading map...</div>
+});
 
 export default function Home() {
   const [callsign, setCallsign] = useState('');
@@ -464,6 +471,12 @@ export default function Home() {
       {pilot && (
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Flight Information</h2>
+          
+          {/* Flight Map */}
+          <div className="mb-8">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Flight Map</h3>
+            <FlightMap pilot={pilot} airports={airports} />
+          </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">

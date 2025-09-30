@@ -28,29 +28,10 @@ export interface VatsimPilot {
     remarks: string;
     route: string;
     revision_id: number;
-    assigned_transponder: string;
+    assigned_transponder?: string;
   };
   logon_time: string;
   last_updated: string;
-}
-
-export interface VatsimData {
-  general: {
-    version: number;
-    reload: number;
-    update: string;
-    update_timestamp: string;
-    connected_clients: number;
-    unique_users: number;
-  };
-  pilots: VatsimPilot[];
-  controllers: any[];
-  atis: any[];
-  servers: any[];
-  prefiles: any[];
-  facilities: any[];
-  ratings: any[];
-  pilot_ratings: any[];
 }
 
 export interface VatsimAirport {

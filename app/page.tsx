@@ -498,7 +498,8 @@ export default function Home() {
                     }`}>
                       {pilot.transponder}
                       {pilot.flight_plan?.assigned_transponder && 
-                       pilot.flight_plan.assigned_transponder !== pilot.transponder && (
+                       pilot.flight_plan.assigned_transponder !== pilot.transponder &&
+                       pilot.flight_plan.assigned_transponder !== "0000" && (
                         <span className="ml-2 text-orange-600">
                           (Assigned: {pilot.flight_plan.assigned_transponder})
                         </span>

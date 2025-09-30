@@ -25,6 +25,7 @@ export default function Home() {
   const [metarData, setMetarData] = useState<Record<string, MetarData>>({});
   const [showDecodedMetar, setShowDecodedMetar] = useState(false);
   const [atisData, setAtisData] = useState<Record<string, AtisData>>({});
+  const [etaData, setEtaData] = useState<{ duration: string; etaUTC: string; etaLocal: string; distance: number } | null>(null);
 
   const fetchAirportInfo = async (icao: string): Promise<VatsimAirport | null> => {
     if (airports[icao]) {
@@ -195,6 +196,80 @@ export default function Home() {
     if (visibility < 3 || ceiling < 1000) return { category: 'IFR', color: 'text-red-700', bg: 'bg-red-100 border-red-200' };
     if (visibility < 5 || ceiling < 3000) return { category: 'MVFR', color: 'text-yellow-700', bg: 'bg-yellow-100 border-yellow-200' };
     return { category: 'VFR', color: 'text-green-700', bg: 'bg-green-100 border-green-200' };
+  };
+
+  // ETA Calculation Functions
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 3440.065; // Earth's radius in nautical miles
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in nautical miles
+  };
+
+  const calculateETA = async (pilot: VatsimPilot): Promise<{ duration: string; etaUTC: string; etaLocal: string; distance: number } | null> => {
+    if (!pilot.flight_plan?.arrival || pilot.groundspeed <= 0) return null;
+
+    try {
+      // Get arrival airport coordinates
+      const arrivalAirport = await getAirportByIcao(pilot.flight_plan.arrival);
+      if (!arrivalAirport || !arrivalAirport.latitude || !arrivalAirport.longitude) return null;
+
+      // Calculate distance to destination
+      const distance = calculateDistance(
+        pilot.latitude,
+        pilot.longitude,
+        arrivalAirport.latitude,
+        arrivalAirport.longitude
+      );
+
+      // Calculate time in hours
+      const timeHours = distance / pilot.groundspeed;
+      
+      // Convert to hours and minutes for duration display
+      const hours = Math.floor(timeHours);
+      const minutes = Math.round((timeHours - hours) * 60);
+
+      // Format duration string
+      let durationString = '';
+      if (hours > 0) {
+        durationString = `${hours}h ${minutes}m`;
+      } else {
+        durationString = `${minutes}m`;
+      }
+
+      // Calculate actual arrival times
+      const now = new Date();
+      const arrivalTime = new Date(now.getTime() + (timeHours * 60 * 60 * 1000));
+
+      // Format UTC time
+      const etaUTC = arrivalTime.toUTCString().slice(17, 22) + 'Z'; // e.g., "15:45Z"
+      
+      // Format local time with timezone
+      const etaLocal = arrivalTime.toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: false,
+        timeZoneName: 'short'
+      });
+
+      return { 
+        duration: durationString, 
+        etaUTC, 
+        etaLocal, 
+        distance: Math.round(distance) 
+      };
+    } catch (error) {
+      console.error('Error calculating ETA:', error);
+      return null;
+    }
+  };
+
+  const formatETADisplay = (duration: string, distance: number): string => {
+    return `${duration} (${distance} nm)`;
   };
 
   const refreshMetarData = async () => {
@@ -423,6 +498,20 @@ export default function Home() {
       }
     };
   }, [autoRefresh, pilot]);
+
+  // Calculate ETA when pilot data changes
+  useEffect(() => {
+    const updateETA = async () => {
+      if (pilot && pilot.flight_plan?.arrival) {
+        const eta = await calculateETA(pilot);
+        setEtaData(eta);
+      } else {
+        setEtaData(null);
+      }
+    };
+
+    updateETA();
+  }, [pilot]);
 
   // Cleanup on component unmount
   useEffect(() => {
@@ -681,6 +770,22 @@ export default function Home() {
                       Charts
                     </a>
                   </div>
+                  {etaData && (
+                    <div>
+                      <span className="font-medium text-gray-700">ETA:</span>
+                      <span className="ml-2 text-gray-900">
+                        {formatETADisplay(etaData.duration, etaData.distance)}
+                      </span>
+                    </div>
+                  )}
+                  {etaData && (
+                    <div>
+                      <span className="font-medium text-gray-700">Arrival Time:</span>
+                      <span className="ml-2 text-gray-900">
+                        {etaData.etaUTC} / {etaData.etaLocal}
+                      </span>
+                    </div>
+                  )}
                   <div>
                     <span className="font-medium text-gray-700">Departure Time:</span>
                     <span className="ml-2 text-gray-900">{pilot.flight_plan.deptime}</span>

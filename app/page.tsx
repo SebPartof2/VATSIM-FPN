@@ -28,6 +28,8 @@ export default function Home() {
   const [atisData, setAtisData] = useState<Record<string, AtisData>>({});
   const [etaData, setEtaData] = useState<{ duration: string; etaUTC: string; etaLocal: string; distance: number } | null>(null);
   const [currentFIR, setCurrentFIR] = useState<{ id: string; name: string; isOceanic: boolean } | null>(null);
+  const [trackingCID, setTrackingCID] = useState<string>('');
+  const [showCIDInput, setShowCIDInput] = useState<boolean>(false);
 
   const fetchAirportInfo = async (icao: string): Promise<VatsimAirport | null> => {
     if (airports[icao]) {
@@ -494,6 +496,96 @@ export default function Home() {
     }
   };
 
+  const searchFlightByCID = async (cid: string) => {
+    if (!cid.trim()) {
+      setError('Please enter a CID');
+      return;
+    }
+
+    // Check network connectivity
+    if (!navigator.onLine) {
+      setError('No internet connection detected. Please check your network and try again.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setPilot(null);
+
+    try {
+      const response = await fetch('https://data.vatsim.net/v3/vatsim-data.json', {
+        method: 'GET',
+        cache: 'no-cache'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Network error: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (!data || !data.pilots) {
+        throw new Error('Invalid data received from VATSIM API');
+      }
+      
+      const foundPilot = data.pilots.find((p: VatsimPilot) => 
+        p.cid.toString() === cid.toString()
+      );
+
+      if (foundPilot) {
+        setPilot(foundPilot);
+        setCallsign(foundPilot.callsign); // Update callsign field with found pilot's callsign
+        setLastUpdated(new Date());
+        setAutoRefresh(true);
+        
+        // Detect current FIR
+        const fir = await detectCurrentFIR(foundPilot);
+        setCurrentFIR(fir);
+        
+        // Fetch active frequency
+        const frequency = await fetchActiveFrequency(foundPilot.callsign);
+        setActiveFrequency(frequency);
+        
+        // Fetch airport information for departure and arrival
+        if (foundPilot.flight_plan) {
+          if (foundPilot.flight_plan.departure) {
+            fetchAirportInfo(foundPilot.flight_plan.departure);
+            fetchMetarData(foundPilot.flight_plan.departure);
+            fetchAtisData(foundPilot.flight_plan.departure);
+          }
+          if (foundPilot.flight_plan.arrival) {
+            fetchAirportInfo(foundPilot.flight_plan.arrival);
+            fetchMetarData(foundPilot.flight_plan.arrival);
+            fetchAtisData(foundPilot.flight_plan.arrival);
+          }
+        }
+      } else {
+        setError(`No pilot found with CID ${cid}. Make sure the CID is correct and the pilot is currently online on VATSIM.`);
+      }
+    } catch (err) {
+      console.error('CID search error:', err);
+      let errorMessage = 'Unknown error occurred';
+      
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          errorMessage = 'Request timeout - Please check your internet connection and try again';
+        } else if (err.message.includes('CORS')) {
+          errorMessage = 'Network access issue - Please try refreshing the page';
+        } else if (err.message.includes('Network')) {
+          errorMessage = 'Network error - Please check your internet connection';
+        } else if (err.message.includes('JSON')) {
+          errorMessage = 'Data parsing error - The server response was invalid';
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
+      setError(`Error fetching flight data: ${errorMessage}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Point-in-polygon algorithm to check if a point is inside a polygon
   const isPointInPolygon = (point: [number, number], polygon: number[][][]): boolean => {
     const [lng, lat] = point;
@@ -706,8 +798,127 @@ export default function Home() {
     };
   }, []);
 
+  // Load saved CID from localStorage on page load (but don't auto-search)
+  useEffect(() => {
+    const savedCID = localStorage.getItem('trackingCID');
+    if (savedCID) {
+      setTrackingCID(savedCID);
+      // Don't auto-search, just load the CID for tracking
+    }
+  }, []);
+
+  const handleCIDSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (trackingCID.trim()) {
+      // Save CID to localStorage
+      localStorage.setItem('trackingCID', trackingCID.trim());
+      setShowCIDInput(false); // Close the input form
+    }
+  };
+
+  const goToTrackedFlight = () => {
+    if (trackingCID.trim()) {
+      searchFlightByCID(trackingCID.trim());
+    }
+  };
+
+  const clearTrackingCID = () => {
+    setTrackingCID('');
+    localStorage.removeItem('trackingCID');
+    setShowCIDInput(false);
+  };
+
   return (
     <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 max-w-4xl">
+      {/* CID Tracking in top right corner */}
+      <div className="fixed top-4 right-4 z-50">
+        {!showCIDInput && !trackingCID ? (
+          <button
+            onClick={() => setShowCIDInput(true)}
+            className="bg-blue-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors shadow-lg"
+            title="Track a specific CID"
+          >
+            + Track CID
+          </button>
+        ) : (
+          <div className="bg-white border border-gray-300 rounded-lg shadow-lg p-3 min-w-[200px]">
+            {trackingCID && !showCIDInput ? (
+              <div className="space-y-2">
+                <div className="text-xs text-gray-600">Tracking CID:</div>
+                <div className="font-mono text-sm font-medium text-blue-600">{trackingCID}</div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={goToTrackedFlight}
+                    className="flex-1 bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700 transition-colors"
+                    disabled={loading}
+                  >
+                    �️ Go to Flight
+                  </button>
+                  <button
+                    onClick={() => setShowCIDInput(true)}
+                    className="bg-gray-500 text-white px-2 py-1 rounded text-xs hover:bg-gray-600 transition-colors"
+                    title="Edit CID"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    onClick={clearTrackingCID}
+                    className="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600 transition-colors"
+                    title="Stop tracking"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleCIDSubmit} className="space-y-2">
+                <div className="text-xs text-gray-600">Enter CID to track:</div>
+                <input
+                  type="text"
+                  value={trackingCID}
+                  onChange={(e) => setTrackingCID(e.target.value)}
+                  placeholder="e.g. 1234567"
+                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  maxLength={10}
+                  pattern="[0-9]*"
+                  disabled={loading}
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    className="flex-1 bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700 transition-colors"
+                    disabled={loading || !trackingCID.trim()}
+                  >
+                    Save CID
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (trackingCID.trim()) {
+                        localStorage.setItem('trackingCID', trackingCID.trim());
+                        searchFlightByCID(trackingCID.trim());
+                        setShowCIDInput(false);
+                      }
+                    }}
+                    className="bg-green-600 text-white px-2 py-1 rounded text-xs hover:bg-green-700 transition-colors"
+                    disabled={loading || !trackingCID.trim()}
+                  >
+                    Save & Go
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCIDInput(false)}
+                    className="bg-gray-500 text-white px-2 py-1 rounded text-xs hover:bg-gray-600 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="text-center mb-6 sm:mb-8">
         <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">
           VATSIM Flight Plan Lookup

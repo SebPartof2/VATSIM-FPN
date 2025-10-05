@@ -878,7 +878,7 @@ export default function Home() {
                   value={trackingCID}
                   onChange={(e) => setTrackingCID(e.target.value)}
                   placeholder="e.g. 1234567"
-                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-2 py-1 text-sm text-gray-900 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                   maxLength={10}
                   pattern="[0-9]*"
                   disabled={loading}
